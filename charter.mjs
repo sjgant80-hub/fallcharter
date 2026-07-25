@@ -23,15 +23,26 @@ export async function sha256Hex(str) {
   return [...d].map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-// Canonical form of a set of invariants — sorted by id so ordering can't change the hash.
+// Canonical form of a set of invariants — sorted by (id, rule) using a CODE-UNIT comparison (not
+// locale-dependent localeCompare, which can order Unicode-collation-equal ids differently across
+// environments), so ordering can never change the hash. ids are stringified for a stable total order.
+const _cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 function canonInvariants(invariants) {
-  return JSON.stringify([...invariants].map(i => ({ id: i.id, rule: i.rule })).sort((a, b) => String(a.id).localeCompare(String(b.id))));
+  return JSON.stringify([...invariants]
+    .map(i => ({ id: String(i.id), rule: String(i.rule) }))
+    .sort((a, b) => _cmp(a.id, b.id) || _cmp(a.rule, b.rule)));
 }
 
 // Seal a kernel: freeze its invariants under a content-hash. The hash IS the kernel's identity.
 export async function sealKernel(invariants = []) {
   if (!Array.isArray(invariants) || invariants.length === 0) throw new Error('a kernel needs at least one invariant');
-  for (const i of invariants) if (!i || i.id == null || i.rule == null) throw new Error('each invariant needs an id and a rule');
+  const ids = new Set();
+  for (const i of invariants) {
+    if (!i || i.id == null || i.rule == null) throw new Error('each invariant needs an id and a rule');
+    const key = String(i.id);
+    if (ids.has(key)) throw new Error(`duplicate invariant id "${key}" — a kernel's invariants must be uniquely identified`);
+    ids.add(key);
+  }
   const kernelHash = await sha256Hex(canonInvariants(invariants));
   return { invariants: invariants.map(i => ({ id: i.id, rule: i.rule })), kernelHash };
 }
@@ -46,34 +57,44 @@ export function charter(kernel, bylaws = []) {
 export async function verifyCharter(c) {
   const breaks = [];
   if (!c || !c.kernel) return { valid: false, kernelIntact: false, breaks: ['no kernel'] };
+  if (!Array.isArray(c.kernel.invariants)) return { valid: false, kernelIntact: false, breaks: ['kernel invariants are malformed'] };
   const reseal = await sha256Hex(canonInvariants(c.kernel.invariants));
   const kernelIntact = reseal === c.kernel.kernelHash;
   if (!kernelIntact) breaks.push('kernel invariants have been altered — kernelHash mismatch');
 
-  const kernelIds = new Set(c.kernel.invariants.map(i => i.id));
+  // ids are compared as strings so a bylaw id "1" cannot slip past a kernel invariant id 1 (or a
+  // duplicate bylaw id 1 vs "1") via type coercion.
+  const kernelIds = new Set(c.kernel.invariants.map(i => String(i.id)));
   const seen = new Set();
   for (const b of (c.bylaws || [])) {
-    if (b.id == null || b.rule == null) breaks.push('a bylaw is missing an id or rule');
-    if (seen.has(b.id)) breaks.push(`duplicate bylaw id "${b.id}"`);
-    if (kernelIds.has(b.id)) breaks.push(`bylaw "${b.id}" collides with a kernel invariant — bylaws may not shadow the kernel`);
-    seen.add(b.id);
+    if (b == null || b.id == null || b.rule == null) { breaks.push('a bylaw is missing an id or rule'); continue; }
+    const bid = String(b.id);
+    if (seen.has(bid)) breaks.push(`duplicate bylaw id "${b.id}"`);
+    if (kernelIds.has(bid)) breaks.push(`bylaw "${b.id}" collides with a kernel invariant — bylaws may not shadow the kernel`);
+    seen.add(bid);
   }
   return { valid: breaks.length === 0, kernelIntact, kernelHash: c.kernel.kernelHash, breaks };
 }
+
+// Deep copy of a kernel so a child/amended charter can never retroactively corrupt its parent by
+// sharing the same kernel object (the kernelHash proves the kernel is UNCHANGED, but the objects must
+// also be isolated so a mutation of one doesn't reach through a shared reference to the other).
+const cloneKernel = k => ({ invariants: k.invariants.map(i => ({ id: i.id, rule: i.rule })), kernelHash: k.kernelHash });
 
 // Fork a charter: the child carries the SAME kernel (proven by hash), with new bylaws of its choosing.
 // A charter whose kernel is already broken cannot be forked.
 export async function forkCharter(parent, newBylaws = []) {
   const v = await verifyCharter(parent);
   if (!v.kernelIntact) throw new Error('cannot fork a charter whose kernel is broken');
-  return { kernel: parent.kernel, bylaws: newBylaws.map(b => ({ id: b.id, rule: b.rule })), version: parent.version + 1, parent: parent.kernel.kernelHash };
+  return { kernel: cloneKernel(parent.kernel), bylaws: newBylaws.map(b => ({ id: b.id, rule: b.rule })), version: parent.version + 1, parent: parent.kernel.kernelHash };
 }
 
-// Amend a bylaw — permitted. Returns a new charter; the kernel is untouched (verify still passes).
+// Amend a bylaw — permitted. Returns a new charter with an isolated kernel copy; the kernel is
+// untouched (verify still passes) and mutating the result cannot reach back into the input.
 export function amendBylaw(c, bylawId, newRule) {
   const found = c.bylaws.some(b => b.id === bylawId);
   const bylaws = c.bylaws.map(b => (b.id === bylawId ? { ...b, rule: newRule } : b));
-  return { ...c, bylaws, version: c.version + 1, amended: found ? bylawId : null };
+  return { ...c, kernel: cloneKernel(c.kernel), bylaws, version: c.version + 1, amended: found ? bylawId : null };
 }
 
 // The barrier, made explicit: attempting to change an invariant yields a DIFFERENT kernelHash. There

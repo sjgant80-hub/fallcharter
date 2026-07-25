@@ -80,3 +80,29 @@ test('duplicate bylaw ids are rejected', async () => {
   const v = await verifyCharter(c);
   assert.ok(v.breaks.some(b => /duplicate bylaw/.test(b)));
 });
+
+test('sealKernel rejects duplicate invariant ids', async () => {
+  await assert.rejects(() => sealKernel([{ id: 'k1', rule: 'a' }, { id: 'k1', rule: 'b' }]), /duplicate invariant id/);
+});
+
+test('a bylaw id that only COERCES to a kernel id is still caught as shadowing', async () => {
+  const kernel = await sealKernel([{ id: 1, rule: 'numeric id invariant' }]);
+  const c = charter(kernel, [{ id: '1', rule: 'string id trying to shadow' }]);
+  const v = await verifyCharter(c);
+  assert.equal(v.valid, false);
+  assert.ok(v.breaks.some(b => /may not shadow the kernel/.test(b)), 'string "1" must not slip past numeric 1');
+});
+
+test('a malformed charter returns invalid — it does not throw', async () => {
+  const v = await verifyCharter({ kernel: { invariants: 'not-an-array', kernelHash: 'x' } });
+  assert.equal(v.valid, false);
+  assert.ok(v.breaks.some(b => /malformed/.test(b)));
+});
+
+test('forking isolates the kernel — mutating the child cannot corrupt the parent', async () => {
+  const parent = await fresh();
+  const child = await forkCharter(parent, [{ id: 'b9', rule: 'x' }]);
+  child.kernel.invariants[0].rule = 'child tampers its own kernel';
+  assert.equal((await verifyCharter(parent)).kernelIntact, true, 'parent kernel is untouched by the child mutation');
+  assert.notEqual(parent.kernel.invariants[0].rule, child.kernel.invariants[0].rule);
+});
