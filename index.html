@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fallcharter · kernel + forkable bylaws</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0a0a0f;--surface:#15161f;--border:#2a2c3a;--text:#e6e7ee;--dim:#9296a6;--ok:#4caf50;--bad:#e05a4d;--accent:#6c8cff;--gold:#f0c040;font-family:system-ui,-apple-system,sans-serif}
+body{background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:1.5rem}
+.wrap{width:100%;max-width:40rem}
+h1{font-size:1.5rem}.sub{color:var(--dim);font-size:.9rem;margin-bottom:1rem}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:.6rem;padding:1.1rem;margin-bottom:1rem}
+.lbl{font-size:.72rem;color:var(--dim);text-transform:uppercase;letter-spacing:.06em}
+.rule{font-family:ui-monospace,monospace;font-size:.78rem;padding:.3rem .5rem;background:var(--bg);border:1px solid var(--border);border-radius:.3rem;margin-top:.3rem}
+.kernel .rule{border-left:3px solid var(--gold)}
+.bylaws .rule{border-left:3px solid var(--accent)}
+button{padding:.5rem .9rem;background:transparent;border:1px solid var(--border);color:var(--text);border-radius:.4rem;cursor:pointer;font-size:.85rem;margin:.5rem .4rem 0 0}
+button.bad{border-color:var(--bad);color:var(--bad)}
+.hash{font-family:ui-monospace,monospace;font-size:.68rem;color:var(--dim);margin-top:.4rem;word-break:break-all}
+#verdict{margin-top:.7rem;font-weight:700}.valid{color:var(--ok)}.invalid{color:var(--bad)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>fallcharter</h1>
+  <p class="sub">The kernel can't change without changing its hash. The bylaws fork freely. Try to break it.</p>
+  <div class="card kernel">
+    <span class="lbl">Kernel · sealed invariants</span>
+    <div id="kernel"></div>
+    <div class="hash" id="khash"></div>
+  </div>
+  <div class="card bylaws">
+    <span class="lbl">Bylaws · forkable</span>
+    <div id="bylaws"></div>
+    <button onclick="amend()">Amend a bylaw (allowed)</button>
+    <button onclick="forkit()">Fork with new bylaws (allowed)</button>
+    <button class="bad" onclick="tamper()">Tamper with the kernel (barrier)</button>
+    <div id="verdict"></div>
+  </div>
+</div>
+<script type="module">
+import { sealKernel, charter, verifyCharter, forkCharter, amendBylaw } from './charter.mjs';
+let c;
+async function boot(){
+  const k = await sealKernel([
+    { id:'k1', rule:'the ledger is append-only' },
+    { id:'k2', rule:'deletion is local + user-initiated' },
+    { id:'k3', rule:'no remote wipe endpoint' },
+  ]);
+  c = charter(k, [{ id:'b1', rule:'quorum is 3' }, { id:'b2', rule:'proposals last 7 days' }]);
+  render();
+}
+async function render(){
+  document.getElementById('kernel').innerHTML = c.kernel.invariants.map(i=>`<div class="rule"><b>${i.id}</b> ${i.rule}</div>`).join('');
+  document.getElementById('khash').textContent = 'kernelHash: '+c.kernel.kernelHash;
+  document.getElementById('bylaws').innerHTML = c.bylaws.map(b=>`<div class="rule"><b>${b.id}</b> ${b.rule}</div>`).join('');
+  const v = await verifyCharter(c);
+  const vd = document.getElementById('verdict');
+  vd.textContent = v.valid ? `✓ valid · kernel intact · v${c.version}` : '✗ '+v.breaks.join('; ');
+  vd.className = v.valid ? 'valid' : 'invalid';
+}
+window.amend = () => { c = amendBylaw(c, 'b1', 'quorum is '+(3+c.version)); render(); };
+window.forkit = async () => { c = await forkCharter(c, [{ id:'b1', rule:'quorum is 5' }, { id:'b3', rule:'new bylaw from the fork' }]); render(); };
+window.tamper = () => { c.kernel.invariants[0].rule = 'the ledger CAN be rewritten'; render(); };
+boot();
+</script>
+</body>
+</html>

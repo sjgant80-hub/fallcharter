@@ -1,0 +1,10 @@
+{
+  "name": "fallcharter",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "charter.mjs",
+  "scripts": {
+    "test": "node --test charter.test.mjs"
+  },
+  "license": "MIT"
+}
