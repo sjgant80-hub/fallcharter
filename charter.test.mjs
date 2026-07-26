@@ -113,6 +113,20 @@ test('malformed charters (many shapes) return invalid — never throw', async ()
   await assert.rejects(() => forkCharter({ kernel: { invariants: [null], kernelHash: 'x' }, version: 1 }, []), /kernel is broken/);
 });
 
+test('verifyCharter flags a missing-ID object invariant even when the hash matches (pins line-62 guard)', async () => {
+  // An object invariant that is present but missing `id` (has a `rule`). The suite already covers a
+  // missing-RULE object; this covers missing-ID. Critically, the kernelHash is made to MATCH the malformed
+  // kernel, so the ONLY thing that can flag it is the line-62 malformed guard — not a hash mismatch. This
+  // kills the `i.id == null || i.rule == null` → `&&` mutant, which would otherwise let a missing-id
+  // invariant verify as valid. (Found by the witness sweep as the estate's one genuine test-theatre gap.)
+  const invariants = [{ rule: 'r' }];
+  const canon = JSON.stringify([{ id: String(undefined), rule: 'r' }]);   // canonInvariants' exact form
+  const kernelHash = await sha256Hex(canon);                              // a MATCHING seal
+  const v = await verifyCharter({ kernel: { invariants, kernelHash }, bylaws: [], version: 1, parent: null });
+  assert.equal(v.valid, false, 'a missing-id invariant is invalid even with a matching hash');
+  assert.ok(v.breaks.includes('a kernel invariant is malformed'), 'flagged as malformed, not merely a hash mismatch');
+});
+
 test('verifyCharter rejects a hand-built kernel with duplicate invariant ids', async () => {
   const kernel = await sealKernel([{ id: 'k1', rule: 'a' }]);
   kernel.invariants.push({ id: 'k1', rule: 'contradictory rule, same id' });   // smuggled in post-seal

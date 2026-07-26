@@ -1,0 +1,7 @@
+[
+  {
+    "mutation": ">= → >",
+    "snippet": "if (!subtle) throw new Error('fallcharter: Web Crypto (crypto.subtle) unavailable — needs ",
+    "reason": "false positive — the operator is inside a string literal (error message), not logic"
+  }
+]
