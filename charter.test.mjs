@@ -99,6 +99,21 @@ test('a malformed charter returns invalid — it does not throw', async () => {
   assert.ok(v.breaks.some(b => /malformed/.test(b)));
 });
 
+test('verifyCharter rejects a hand-built kernel with duplicate invariant ids', async () => {
+  const kernel = await sealKernel([{ id: 'k1', rule: 'a' }]);
+  kernel.invariants.push({ id: 'k1', rule: 'contradictory rule, same id' });   // smuggled in post-seal
+  const v = await verifyCharter(charter(kernel, []));
+  assert.equal(v.valid, false);
+  assert.ok(v.breaks.some(b => /duplicate invariant id/.test(b)));
+});
+
+test('amendBylaw isolates ALL bylaws — mutating a result bylaw cannot reach the input', async () => {
+  const c = await fresh();
+  const c2 = amendBylaw(c, 'b1', 'quorum is 9');
+  c2.bylaws.find(b => b.id === 'b2').rule = 'mutated on the child';   // a NON-amended bylaw
+  assert.notEqual(c.bylaws.find(b => b.id === 'b2').rule, 'mutated on the child', 'parent bylaw untouched');
+});
+
 test('forking isolates the kernel — mutating the child cannot corrupt the parent', async () => {
   const parent = await fresh();
   const child = await forkCharter(parent, [{ id: 'b9', rule: 'x' }]);

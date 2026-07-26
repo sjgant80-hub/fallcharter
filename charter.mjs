@@ -64,7 +64,14 @@ export async function verifyCharter(c) {
 
   // ids are compared as strings so a bylaw id "1" cannot slip past a kernel invariant id 1 (or a
   // duplicate bylaw id 1 vs "1") via type coercion.
-  const kernelIds = new Set(c.kernel.invariants.map(i => String(i.id)));
+  const kernelIds = new Set();
+  for (const i of c.kernel.invariants) {
+    // a hand-built / deserialised kernel could carry duplicate invariant ids; verify must reject that
+    // (not only sealKernel), else two contradictory rules share one id and both read as valid.
+    const kid = String(i.id);
+    if (kernelIds.has(kid)) breaks.push(`kernel has duplicate invariant id "${i.id}"`);
+    kernelIds.add(kid);
+  }
   const seen = new Set();
   for (const b of (c.bylaws || [])) {
     if (b == null || b.id == null || b.rule == null) { breaks.push('a bylaw is missing an id or rule'); continue; }
@@ -93,7 +100,9 @@ export async function forkCharter(parent, newBylaws = []) {
 // untouched (verify still passes) and mutating the result cannot reach back into the input.
 export function amendBylaw(c, bylawId, newRule) {
   const found = c.bylaws.some(b => b.id === bylawId);
-  const bylaws = c.bylaws.map(b => (b.id === bylawId ? { ...b, rule: newRule } : b));
+  // clone EVERY bylaw (not just the amended one) so mutating a result bylaw cannot reach back into the
+  // input via a shared reference — the isolation the docstring promises.
+  const bylaws = c.bylaws.map(b => (b.id === bylawId ? { ...b, rule: newRule } : { ...b }));
   return { ...c, kernel: cloneKernel(c.kernel), bylaws, version: c.version + 1, amended: found ? bylawId : null };
 }
 
