@@ -93,10 +93,24 @@ test('a bylaw id that only COERCES to a kernel id is still caught as shadowing',
   assert.ok(v.breaks.some(b => /may not shadow the kernel/.test(b)), 'string "1" must not slip past numeric 1');
 });
 
-test('a malformed charter returns invalid — it does not throw', async () => {
-  const v = await verifyCharter({ kernel: { invariants: 'not-an-array', kernelHash: 'x' } });
-  assert.equal(v.valid, false);
-  assert.ok(v.breaks.some(b => /malformed/.test(b)));
+test('malformed charters (many shapes) return invalid — never throw', async () => {
+  const good = await sealKernel([{ id: 'k1', rule: 'r' }]);
+  const shapes = [
+    { kernel: { invariants: 'not-an-array', kernelHash: 'x' } },
+    { kernel: { invariants: [null], kernelHash: 'x' } },
+    { kernel: { invariants: [undefined], kernelHash: 'x' } },
+    { kernel: { invariants: [{ id: 'a', rule: 'r' }, null], kernelHash: 'x' } },
+    JSON.parse('{"kernel":{"invariants":[null],"kernelHash":"x"},"bylaws":[]}'),
+    { kernel: good, bylaws: {} },   // non-iterable bylaws
+    { kernel: good, bylaws: 5 },
+  ];
+  for (const s of shapes) {
+    const v = await verifyCharter(s);
+    assert.equal(v.valid, false, `${JSON.stringify(s).slice(0, 40)} → invalid`);
+    assert.equal(typeof v.valid, 'boolean', 'returned, not thrown');
+  }
+  // and forkCharter must reject a broken kernel gracefully, not propagate a raw throw
+  await assert.rejects(() => forkCharter({ kernel: { invariants: [null], kernelHash: 'x' }, version: 1 }, []), /kernel is broken/);
 });
 
 test('verifyCharter rejects a hand-built kernel with duplicate invariant ids', async () => {

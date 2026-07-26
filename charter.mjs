@@ -58,6 +58,14 @@ export async function verifyCharter(c) {
   const breaks = [];
   if (!c || !c.kernel) return { valid: false, kernelIntact: false, breaks: ['no kernel'] };
   if (!Array.isArray(c.kernel.invariants)) return { valid: false, kernelIntact: false, breaks: ['kernel invariants are malformed'] };
+  // every invariant must be a non-null object with id/rule, or canonInvariants (String(i.id)) throws.
+  if (c.kernel.invariants.some(i => !i || typeof i !== 'object' || i.id == null || i.rule == null)) {
+    return { valid: false, kernelIntact: false, breaks: ['a kernel invariant is malformed'] };
+  }
+  // bylaws, if present, must be iterable-as-array (a non-iterable would throw the for-of below).
+  if (c.bylaws != null && !Array.isArray(c.bylaws)) {
+    return { valid: false, kernelIntact: false, breaks: ['bylaws must be an array'] };
+  }
   const reseal = await sha256Hex(canonInvariants(c.kernel.invariants));
   const kernelIntact = reseal === c.kernel.kernelHash;
   if (!kernelIntact) breaks.push('kernel invariants have been altered — kernelHash mismatch');
