@@ -135,3 +135,72 @@ test('forking isolates the kernel — mutating the child cannot corrupt the pare
   assert.equal((await verifyCharter(parent)).kernelIntact, true, 'parent kernel is untouched by the child mutation');
   assert.notEqual(parent.kernel.invariants[0].rule, child.kernel.invariants[0].rule);
 });
+
+// ──────────────────────────────────────────────────────────────────
+// Designed tests pinning exact boundaries the witness mutation gate flagged as theatre.
+// Each targets one branch/operator so the corresponding mutant FAILS this test.
+// ──────────────────────────────────────────────────────────────────
+
+test('attemptKernelChange on an UNKNOWN invariant id detects no change (line 120: i.id === invId)', async () => {
+  // With `===`, no invariant matches → nothing is rewritten → the hash is identical → detected:false.
+  // A `!==` mutant would rewrite EVERY other invariant and falsely report a change.
+  const c = await fresh();
+  const r = await attemptKernelChange(c, 'no-such-invariant', 'whatever');
+  assert.equal(r.detected, false, 'no matching invariant → hash unchanged → nothing detected');
+  assert.equal(r.newHash, r.oldHash);
+});
+
+test('amendBylaw reports the amended id, and null when nothing matched (line 110: b.id === bylawId)', async () => {
+  const c = await fresh();
+  assert.equal(amendBylaw(c, 'b1', 'quorum is 6').amended, 'b1', 'a matching bylaw id is recorded');
+  assert.equal(amendBylaw(c, 'no-such-bylaw', 'x').amended, null, 'no match → amended is null, not the id');
+});
+
+test('forkCharter increments the version by exactly one (line 104: parent.version + 1)', async () => {
+  const parent = await fresh();
+  const child = await forkCharter(parent, [{ id: 'z', rule: 'r' }]);
+  assert.equal(child.version, parent.version + 1, 'child version is parent + 1, not - 1');
+});
+
+test('verifyCharter returns invalid (never throws) for null/undefined/empty/kernel-null (line 59: !c || !c.kernel)', async () => {
+  for (const bad of [null, undefined, {}, { kernel: null }]) {
+    const v = await verifyCharter(bad);
+    assert.equal(v.valid, false, `${JSON.stringify(bad)} → invalid`);
+    assert.equal(v.kernelIntact, false);
+  }
+});
+
+test('sealKernel rejects a null invariant with the designed error, not a raw TypeError (line 41: !i || ...)', async () => {
+  await assert.rejects(() => sealKernel([null]), /id and a rule/, 'null invariant → designed error');
+  await assert.rejects(() => sealKernel([{ rule: 'r' }]), /id and a rule/, 'missing id → designed error');
+});
+
+test('a kernel invariant that is an object missing its rule is caught as malformed (line 62: i.id == null || i.rule == null)', async () => {
+  const kernel = await sealKernel([{ id: 'k1', rule: 'r' }]);
+  kernel.invariants.push({ id: 'k2' });   // an object, has an id, but NO rule
+  const v = await verifyCharter(charter(kernel, []));
+  assert.equal(v.valid, false);
+  assert.ok(v.breaks.some(b => /a kernel invariant is malformed/.test(b)),
+    'a missing-rule invariant must be reported as malformed, not merely as a hash mismatch');
+});
+
+test('a bylaw missing its rule is flagged, and a null bylaw does not throw (line 85: b == null || b.id == null || b.rule == null)', async () => {
+  const kernel = await sealKernel(INV);
+  const v1 = await verifyCharter(charter(kernel, [{ id: 'b9' }]));   // object, has id, no rule
+  assert.equal(v1.valid, false);
+  assert.ok(v1.breaks.some(b => /missing an id or rule/.test(b)), 'missing-rule bylaw is flagged');
+  const v2 = await verifyCharter({ kernel, bylaws: [null] });        // a null bylaw must not throw
+  assert.equal(v2.valid, false);
+  assert.ok(v2.breaks.some(b => /missing an id or rule/.test(b)), 'null bylaw is flagged, not thrown');
+});
+
+test('the canonical reseal is order-independent even for duplicate invariant ids (lines 29 & 33: _cmp tie-break)', async () => {
+  // Canonical form sorts by (id, rule); with equal ids the rule "a" must precede "b" REGARDLESS of
+  // input order. A broken _cmp equal-branch (>=/<=) or a broken || tie-break would let input order
+  // change the reseal, making kernelIntact depend on array order rather than on genuine tampering.
+  const H = await sha256Hex(JSON.stringify([{ id: 'k1', rule: 'a' }, { id: 'k1', rule: 'b' }]));
+  const forward  = { kernel: { invariants: [{ id: 'k1', rule: 'a' }, { id: 'k1', rule: 'b' }], kernelHash: H }, bylaws: [] };
+  const backward = { kernel: { invariants: [{ id: 'k1', rule: 'b' }, { id: 'k1', rule: 'a' }], kernelHash: H }, bylaws: [] };
+  assert.equal((await verifyCharter(forward)).kernelIntact, true, 'forward order reseals to the canonical hash');
+  assert.equal((await verifyCharter(backward)).kernelIntact, true, 'backward order reseals to the SAME canonical hash');
+});
