@@ -4,7 +4,7 @@
   "type": "module",
   "main": "charter.mjs",
   "scripts": {
-    "test": "node --test charter.test.mjs"
+    "test": "node --test"
   },
   "license": "MIT"
 }
