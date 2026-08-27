@@ -9,3 +9,9 @@ jobs:
         with:
           node-version: '20'
       - run: npm test
+      # ⚑ Pinned. An unpinned gate is a gate somebody else can change.
+      - name: witness — try to break charter.mjs, then READ the verdict (must be CLEAN)
+        run: |
+          git clone --depth 1 --branch v0.6 https://github.com/sjgant80-hub/witness.git /tmp/witness
+          node /tmp/witness/witness.mjs mutate charter.mjs             --timeout 60000 --cap 500 --baseline witness.baseline.json             --test node --test charter.test.mjs | tee verdict.txt
+          grep -q '"clean": true' verdict.txt || { echo "::error::mutants survived — the gate is not clean"; exit 1; }
