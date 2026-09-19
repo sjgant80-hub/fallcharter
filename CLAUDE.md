@@ -25,4 +25,4 @@ CI runs `npm test` on every push.
 ## Seam
 
 Public, general-purpose governance primitive. Kernel / bylaws / invariant / fork / seal language only.
-Do NOT introduce the private cosmology (no κ/θ/Ψ, no element or dyad references, no "the Thirteen").
+Do NOT introduce the project's private internal taxonomy or notation.
